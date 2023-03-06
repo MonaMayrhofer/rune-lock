@@ -1,5 +1,7 @@
 use std::{collections::HashSet, fmt::Display};
 
+use thiserror::Error;
+
 use crate::{activation::Activation, assignment::Assignment, index::RunePosition, RuneLock};
 
 #[derive(Clone)]
@@ -76,10 +78,23 @@ enum ActivationPossibility {
     MoreThanOne,
 }
 
-enum DeductionResult {
+enum DeductionIterationResult {
     Unsolvable,
     MadeDeductions(SolverState),
-    Done,
+    Indecisive,
+}
+
+pub enum DeductionResult {
+    Unsolvable,
+    Indecisive,
+}
+
+#[derive(Debug, Error)]
+pub enum SolverError {
+    #[error("Cannot fix two assumptions into one position.")]
+    DoubleFix,
+    #[error("Cannot go back before the initial state.")]
+    PopInitialState,
 }
 
 impl SolverState {
@@ -88,11 +103,11 @@ impl SolverState {
         lock: &RuneLock,
         position: RunePosition,
         to_be: Activation,
-    ) -> SolverState {
+    ) -> Result<SolverState, SolverError> {
         let mut new_state = self.clone();
-        new_state.fix(position, to_be);
+        new_state.fix(position, to_be)?;
         new_state.prune_state(lock);
-        new_state
+        Ok(new_state)
     }
 
     pub fn fixed_assignments(&self) -> Assignment {
@@ -103,12 +118,13 @@ impl SolverState {
         Assignment::from_iter(i).expect("solver should only contain valid assignment states")
     }
 
-    fn fix(&mut self, position: RunePosition, to_be: Activation) {
+    fn fix(&mut self, position: RunePosition, to_be: Activation) -> Result<(), SolverError> {
         match self.state[position] {
-            FieldState::Fixed(_) => panic!("Cannot double fix a field."),
+            FieldState::Fixed(_) => return Err(SolverError::DoubleFix),
             _ => {}
         }
         self.state[position] = FieldState::Fixed(to_be);
+        Ok(())
     }
 
     fn prune_state(&mut self, lock: &RuneLock) {
@@ -134,7 +150,7 @@ impl SolverState {
         }
     }
 
-    fn deduce(&self, lock: &RuneLock) -> DeductionResult {
+    fn deduce(&self, lock: &RuneLock) -> DeductionIterationResult {
         let mut activation_possibility = [0; 12].map(|_| ActivationPossibility::None);
         for (position, state) in self.state.iter().enumerate() {
             let position = RunePosition::new(position);
@@ -181,17 +197,19 @@ impl SolverState {
             match possibilities {
                 ActivationPossibility::ForcedAt(pos) | ActivationPossibility::ExactlyOne(pos) => {
                     changed = true;
-                    deduced_state.fix(pos, activation)
+                    deduced_state
+                        .fix(pos, activation)
+                        .expect("the deducer shouldn't create fixings that would error")
                 }
-                ActivationPossibility::None => return DeductionResult::Unsolvable,
+                ActivationPossibility::None => return DeductionIterationResult::Unsolvable,
                 _ => {}
             }
         }
         if changed {
             deduced_state.prune_state(lock);
-            return DeductionResult::MadeDeductions(deduced_state);
+            return DeductionIterationResult::MadeDeductions(deduced_state);
         } else {
-            return DeductionResult::Done;
+            return DeductionIterationResult::Indecisive;
         }
     }
 }
@@ -213,10 +231,16 @@ impl Solver {
             }],
         }
     }
-    pub fn fix(&mut self, lock: &RuneLock, position: RunePosition, to_be: Activation) {
-        let new_state = self.peek().with_fixed(lock, position, to_be);
+    pub fn fix(
+        &mut self,
+        lock: &RuneLock,
+        position: RunePosition,
+        to_be: Activation,
+    ) -> Result<(), SolverError> {
+        let new_state = self.peek().with_fixed(lock, position, to_be)?;
         self.states
             .push(SolverStateType::Assumed { state: new_state });
+        Ok(())
     }
 
     pub fn peek(&self) -> &SolverState {
@@ -232,29 +256,32 @@ impl Solver {
         }
     }
 
-    pub fn back(&mut self) {
+    pub fn back(&mut self) -> Result<(), SolverError> {
         if self.states.len() == 1 {
-            panic!("Cannot pop initial state.")
+            return Err(SolverError::PopInitialState);
         }
         self.states.pop();
+        Ok(())
     }
 
-    pub fn iterate_deductions(&mut self, lock: &RuneLock) {
+    pub fn iterate_deductions(&mut self, lock: &RuneLock) -> DeductionResult {
         let mut substates = Vec::new();
         let mut last = self.peek();
         loop {
             let result = last.deduce(lock);
             match result {
-                DeductionResult::Unsolvable => todo!(),
-                DeductionResult::MadeDeductions(deduced) => {
+                DeductionIterationResult::Unsolvable => return DeductionResult::Unsolvable,
+                DeductionIterationResult::MadeDeductions(deduced) => {
                     substates.push(deduced);
                     last = substates.last().unwrap();
                 }
-                DeductionResult::Done => break,
+                DeductionIterationResult::Indecisive => {
+                    if !substates.is_empty() {
+                        self.states.push(SolverStateType::Deduced { substates })
+                    }
+                    return DeductionResult::Indecisive;
+                }
             }
-        }
-        if !substates.is_empty() {
-            self.states.push(SolverStateType::Deduced { substates })
         }
     }
 }

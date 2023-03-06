@@ -7,6 +7,7 @@ pub mod solver;
 
 use std::io;
 use std::io::BufRead;
+use std::result;
 
 use activation::Activation;
 use assignment::{print_assignment, Assignment};
@@ -91,9 +92,12 @@ fn main() {
             //Parse Line
             let (command, args) = line.split_once(' ').unwrap_or((&line[..], ""));
             match command {
+                "try" => {}
                 "back" => {
                     println!("Go back.");
-                    solver.back();
+                    if let Some(err) = solver.back().err() {
+                        println!("Could not go back: {}", err);
+                    }
                 }
                 "set" => {
                     if let Some((field, target)) = args.split_once(' ') {
@@ -102,8 +106,23 @@ fn main() {
                             if let Ok(activation) = target.parse::<u8>() {
                                 if let Ok(activation) = Activation::from_human(activation) {
                                     let position = RunePosition::new(field);
-                                    solver.fix(&lock, position, activation);
-                                    solver.iterate_deductions(&lock);
+                                    if let Some(err) = solver.fix(&lock, position, activation).err()
+                                    {
+                                        println!("Could not fix: {}", err);
+                                    } else {
+                                        println!("Automatically running deductions.");
+                                        let result = solver.iterate_deductions(&lock);
+                                        match result {
+                                            solver::DeductionResult::Unsolvable => {
+                                                println!("{}", "No solution found.".red())
+                                            }
+                                            solver::DeductionResult::Indecisive => {
+                                                println!(
+                                                    "Unclear State, Manual Assumptions required."
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
