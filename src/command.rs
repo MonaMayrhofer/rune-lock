@@ -39,7 +39,7 @@ impl SolverCommand {
         let (command, args) = text.split_once(' ').unwrap_or((text, ""));
 
         match command {
-            "assume" => {
+            "assume" | "a" => {
                 let (position, activation) = args
                     .split_once(' ')
                     .ok_or(SolverCommandError::NotEnoughArguments { expected: 2 })?;
@@ -53,16 +53,16 @@ impl SolverCommand {
                     activation,
                 })
             }
-            "view" => {
+            "view" | "v" => {
                 let node = args.parse::<usize>()?;
                 Ok(SolverCommand::View { node })
             }
-            "tryposition" => {
+            "tryposition" | "tp" => {
                 let position = args.parse::<usize>()?;
                 let position = RunePosition::new(position);
                 Ok(Self::TryInPosition { position })
             }
-            "tryactivation" => {
+            "tryactivation" | "ta" => {
                 let act = args.parse::<u8>()?;
                 let act = Activation::from_human(act)?;
                 Ok(Self::TryActivation { activation: act })

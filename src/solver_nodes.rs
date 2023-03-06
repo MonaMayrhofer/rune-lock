@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{activation::Activation, index::RunePosition, solver::solver_state::SolverState};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum SolverNodeAction {
     Assume {
         position: RunePosition,
@@ -19,7 +19,7 @@ pub enum SolverNodeAction {
 pub enum SolverNodeState {
     Unsolvable,
     Alive,
-    Success,
+    Solved,
 }
 
 pub struct SolverNodeData {
@@ -100,6 +100,10 @@ impl SolverNodes {
         }
         return Ok(SolverNodeHandle(node));
     }
+
+    pub fn parent_of(&self, node: SolverNodeHandle) -> Option<SolverNodeHandle> {
+        self.nodes[node.0].parent
+    }
 }
 
 impl Index<SolverNodeHandle> for SolverNodes {
@@ -134,7 +138,7 @@ impl Display for SolverNodeState {
         match self {
             SolverNodeState::Unsolvable => write!(f, "✘"),
             SolverNodeState::Alive => write!(f, " "),
-            SolverNodeState::Success => write!(f, "✔"),
+            SolverNodeState::Solved => write!(f, "✔"),
         }
     }
 }

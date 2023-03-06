@@ -44,6 +44,7 @@ pub enum DeductionResult {
 pub enum DeduceWithAssumptionResult {
     Unsolvable { reason: String },
     Done(Vec<SolverState>),
+    Solved(Vec<SolverState>),
 }
 
 #[derive(Debug, Error)]
@@ -79,6 +80,7 @@ pub enum SolverError {
 pub enum ExploreResult {
     Unsolvable { reason: String },
     Indecisive,
+    Solved { solution: SolverNodeHandle },
 }
 
 impl Display for ExploreResult {
@@ -93,6 +95,9 @@ impl Display for ExploreResult {
                 f,
                 "This assignment leads to another unclear situation. More assumptions required."
             ),
+            ExploreResult::Solved { solution } => {
+                write!(f, "The assignment {} solves the lock.", solution)
+            }
         }
     }
 }
@@ -141,6 +146,23 @@ impl Solver {
                 );
                 Ok(ExploreResult::Indecisive)
             }
+            Ok(DeduceWithAssumptionResult::Solved(steps)) => {
+                println!("AAAHHHH SOLVED");
+                self.nodes[self.current].rule_out(position, assume_to_be);
+                let solution = self.nodes.insert_child(
+                    self.current,
+                    SolverNodeData {
+                        state: SolverNodeState::Solved,
+                        deduction_chain: steps,
+                        action: SolverNodeAction::Assume {
+                            position,
+                            activation: assume_to_be,
+                        },
+                    },
+                );
+                self.current = solution;
+                Ok(ExploreResult::Solved { solution })
+            }
             Err(err) => Err(err),
         }
     }
@@ -166,21 +188,41 @@ impl Solver {
     ) -> Result<ExploreResult, SolverError> {
         let state = self.peek();
         let to_try = state.possible_positions_of(activation);
+        println!("to try: {:?}", to_try);
+        let mut solved = false;
         for i in to_try {
             match self.explore(lock, i, activation)? {
                 ExploreResult::Unsolvable { reason } => {
                     println!("Assumption {} in {} is false: {}", activation, i, reason);
                 }
                 ExploreResult::Indecisive => return Ok(ExploreResult::Indecisive),
+                ExploreResult::Solved { .. } => {
+                    solved = true;
+                }
             }
         }
-        self.nodes[self.current].state = SolverNodeState::Unsolvable;
-        Ok(ExploreResult::Unsolvable {
-            reason: format!(
-                "Activation {} has no position it can be assigned to.",
-                activation
-            ),
-        })
+
+        if solved {
+            Ok(ExploreResult::Indecisive)
+        } else {
+            self.nodes[self.current].state = SolverNodeState::Unsolvable;
+            let assumption = self.nodes[self.current].action;
+            self.current = self.nodes.parent_of(self.current).unwrap();
+            if let SolverNodeAction::Assume {
+                position,
+                activation,
+            } = assumption
+            {
+                self.nodes[self.current].rule_out(position, activation)
+            }
+
+            Ok(ExploreResult::Unsolvable {
+                reason: format!(
+                    "Activation {} has no position it can be assigned to.",
+                    activation
+                ),
+            })
+        }
     }
 
     pub fn try_in_position(
@@ -190,20 +232,39 @@ impl Solver {
     ) -> Result<ExploreResult, SolverError> {
         let state = self.peek();
         let to_try = state.possible_activations_of(position);
+        let mut solved = false;
         for i in to_try {
             match self.explore(lock, position, i)? {
                 ExploreResult::Unsolvable { reason } => {
                     println!("Assumption {} in {} is false: {}", i, position, reason);
                 }
                 ExploreResult::Indecisive => return Ok(ExploreResult::Indecisive),
+                ExploreResult::Solved { .. } => {
+                    solved = true;
+                }
             }
         }
-        self.nodes[self.current].state = SolverNodeState::Unsolvable;
-        Ok(ExploreResult::Unsolvable {
-            reason: format!(
-                "Positon {} has no activation that can be assigned to it.",
-                position
-            ),
-        })
+
+        if solved {
+            Ok(ExploreResult::Indecisive)
+        } else {
+            self.nodes[self.current].state = SolverNodeState::Unsolvable;
+            let assumption = self.nodes[self.current].action;
+            self.current = self.nodes.parent_of(self.current).unwrap();
+            if let SolverNodeAction::Assume {
+                position,
+                activation,
+            } = assumption
+            {
+                self.nodes[self.current].rule_out(position, activation)
+            }
+
+            Ok(ExploreResult::Unsolvable {
+                reason: format!(
+                    "Positon {} has no activation that can be assigned to it.",
+                    position
+                ),
+            })
+        }
     }
 }

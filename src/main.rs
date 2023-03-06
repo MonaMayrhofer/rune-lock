@@ -82,10 +82,11 @@ fn main() {
             (6, 8).antakian_conjugate(),
             (7, 8).different_runes(),
             (9, 10).alwanese(),
+            (9, 10).antakian_twins(),
             (10, 11).increase_santor(),
             (11, 12).increase_santor(),
             (8, 10).antakian_twins(),
-            (1, 12).max_0_conductive(),
+            (1, 12).alwanese(),
             RuleKind::RuneFollowsImmediately {
                 first: Rune::new(0),
                 second: Rune::new(1),

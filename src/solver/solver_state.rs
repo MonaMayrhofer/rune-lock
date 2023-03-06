@@ -106,6 +106,19 @@ impl SolverState {
                     substates.push(deduced);
                 }
                 DeductionIterationResult::Indecisive => {
+                    println!("Indecisive, check for solve");
+                    let last = substates.last().unwrap();
+                    let mut solved = true;
+                    for i in last.state.iter() {
+                        if let FieldState::Unsure(_) = i {
+                            solved = false;
+                        }
+                    }
+                    if solved {
+                        if let Ok(_) = lock.validate(&last.fixed_assignments()) {
+                            return Ok(DeduceWithAssumptionResult::Solved(substates));
+                        }
+                    }
                     return Ok(DeduceWithAssumptionResult::Done(substates));
                 }
             }
@@ -129,8 +142,10 @@ impl SolverState {
             let position = RunePosition::new(position);
 
             match state {
-                FieldState::Unsure(possibilities) => positions.push(position),
-                FieldState::Assumed(_) | FieldState::Deduced(_) => {}
+                FieldState::Unsure(possibilities) if possibilities.contains(&activation) => {
+                    positions.push(position)
+                }
+                _ => {}
             }
         }
         positions.sort();
