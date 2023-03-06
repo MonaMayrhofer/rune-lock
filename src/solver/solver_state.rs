@@ -10,44 +10,16 @@ use crate::{
     assignment::Assignment,
     index::RunePosition,
     solver_nodes::{
-        SolverNodeAction, SolverNodeData, SolverNodeHandle, SolverNodes, SolverNodesError,
+        SolverNodeAction, SolverNodeData, SolverNodeHandle, SolverNodeState, SolverNodes,
+        SolverNodesError,
     },
     RuneLock,
 };
 
-#[derive(Clone)]
-enum FieldState {
-    Assumed(Activation),
-    Unsure(HashSet<Activation>),
-    Deduced(Activation),
-}
-
-impl Default for FieldState {
-    fn default() -> Self {
-        Self::Unsure(HashSet::from_iter(
-            (0..12).map(|it| Activation::new(it).unwrap()),
-        ))
-    }
-}
-
-impl Display for FieldState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FieldState::Deduced(a) => write!(f, "{}", a),
-            FieldState::Assumed(a) => write!(f, "{}?", a),
-            FieldState::Unsure(p) => {
-                write!(f, "[")?;
-                let mut act: Vec<_> = p.iter().collect();
-                act.sort();
-                for i in act {
-                    write!(f, "{} ", i)?;
-                }
-                write!(f, "]")?;
-                Ok(())
-            }
-        }
-    }
-}
+use super::{
+    field_state::FieldState, ActivationPossibility, DeduceWithAssumptionResult,
+    DeductionIterationResult, SolverError,
+};
 
 #[derive(Clone)]
 pub enum SolverStateAction {
@@ -100,61 +72,6 @@ impl Default for SolverState {
     }
 }
 
-enum ActivationPossibility {
-    AlreadyDeduced,
-    None,
-    ForcedAt(RunePosition),
-    ExactlyOne(RunePosition),
-    MoreThanOne,
-    AlreadyAssumed,
-}
-
-enum DeductionIterationResult {
-    Unsolvable { reason: String },
-    MadeDeductions(SolverState),
-    Indecisive,
-}
-
-pub enum DeductionResult {
-    Unsolvable,
-    Indecisive,
-}
-
-pub enum DeduceWithAssumptionResult {
-    Unsolvable { reason: String },
-    Done(Vec<SolverState>),
-}
-
-#[derive(Debug, Error)]
-pub enum SolverError {
-    #[error("Cannot assume that {activation} is at position {new_position}, which is already assumed to be {old_assumption}")]
-    AssumeAtOldAssumption {
-        activation: Activation,
-        new_position: RunePosition,
-        old_assumption: Activation,
-    },
-    #[error("Cannot assume that {activation} is at position {new_position}, which is already deduced to be {old_deduction}")]
-    AssumeAtOldDeduction {
-        activation: Activation,
-        new_position: RunePosition,
-        old_deduction: Activation,
-    },
-    #[error("Cannot assume that {activation} is at position {new_position}, when it is already assumed to be at {old_position}")]
-    ActivationAlreadyAssumed {
-        activation: Activation,
-        new_position: RunePosition,
-        old_position: RunePosition,
-    },
-    #[error("Cannot assume that {activation} is at position {new_position}, when it is already deduced to be at {old_position}")]
-    ActivationAlreadyDeduced {
-        activation: Activation,
-        new_position: RunePosition,
-        old_position: RunePosition,
-    },
-    #[error("Cannot go back before the initial state.")]
-    PopInitialState,
-}
-
 impl SolverState {
     pub fn with_assumed(
         &self,
@@ -193,6 +110,31 @@ impl SolverState {
                 }
             }
         }
+    }
+
+    pub fn possible_activations_of(&self, pos: RunePosition) -> Vec<Activation> {
+        match &self.state[pos] {
+            FieldState::Unsure(possibilities) => {
+                let mut poss: Vec<_> = possibilities.iter().cloned().collect();
+                poss.sort();
+                poss
+            }
+            FieldState::Assumed(_) | FieldState::Deduced(_) => Vec::new(),
+        }
+    }
+
+    pub fn possible_positions_of(&self, activation: Activation) -> Vec<RunePosition> {
+        let mut positions = Vec::with_capacity(12);
+        for (position, state) in self.state.iter().enumerate() {
+            let position = RunePosition::new(position);
+
+            match state {
+                FieldState::Unsure(possibilities) => positions.push(position),
+                FieldState::Assumed(_) | FieldState::Deduced(_) => {}
+            }
+        }
+        positions.sort();
+        positions
     }
 
     pub fn fixed_assignments(&self) -> Assignment {
@@ -377,81 +319,5 @@ impl SolverState {
                 position,
             },
         }
-    }
-}
-
-pub enum ExploreResult {
-    Unsolvable { reason: String },
-    Indecisive,
-}
-
-impl Display for ExploreResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self{
-            ExploreResult::Unsolvable{reason} => write!(f, "This assignment turns out to be impossible. Removed it from the possibility lists. ({})", reason),
-            ExploreResult::Indecisive => write!(f, "This assignment leads to another unclear situation. More assumptions required."),
-        }
-    }
-}
-
-pub struct Solver {
-    nodes: SolverNodes,
-    current: SolverNodeHandle,
-}
-
-impl Solver {
-    pub fn new() -> Self {
-        let (nodes, root) = SolverNodes::new(SolverState::default());
-        Self {
-            nodes,
-            current: root,
-        }
-    }
-
-    pub fn explore(
-        &mut self,
-        lock: &RuneLock,
-        position: RunePosition,
-        assume_to_be: Activation,
-    ) -> Result<ExploreResult, SolverError> {
-        let result = self
-            .peek()
-            .deduce_with_assumption(lock, position, assume_to_be);
-
-        match result {
-            Ok(DeduceWithAssumptionResult::Unsolvable { reason }) => {
-                self.nodes[self.current].rule_out(position, assume_to_be);
-
-                Ok(ExploreResult::Unsolvable { reason })
-            }
-            Ok(DeduceWithAssumptionResult::Done(steps)) => {
-                self.current = self.nodes.insert_child(
-                    self.current,
-                    SolverNodeData {
-                        deduction_chain: steps,
-                        action: SolverNodeAction::Assume {
-                            position,
-                            activation: assume_to_be,
-                        },
-                    },
-                );
-                Ok(ExploreResult::Indecisive)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn peek(&self) -> &SolverState {
-        &self.nodes[self.current].deduction_chain.last().unwrap()
-    }
-
-    pub fn print_nodes(&self) {
-        println!("{}", self.nodes);
-        println!("{}", self.current);
-    }
-
-    pub fn view(&mut self, node: usize) -> Result<(), SolverNodesError> {
-        self.current = self.nodes.get_handle(node)?;
-        Ok(())
     }
 }

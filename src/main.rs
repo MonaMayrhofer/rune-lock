@@ -121,6 +121,20 @@ fn main() {
                             Err(err) => println!("Error: {}", err),
                         }
                     }
+                    SolverCommand::TryInPosition { position } => {
+                        let result = solver.try_in_position(&lock, position);
+                        match result {
+                            Ok(result) => println!("Result: {}", result),
+                            Err(err) => println!("Error: {}", err),
+                        }
+                    }
+                    SolverCommand::TryActivation { activation } => {
+                        let result = solver.try_activation(&lock, activation);
+                        match result {
+                            Ok(result) => println!("Result: {}", result),
+                            Err(err) => println!("Error: {}", err),
+                        }
+                    }
                 },
             }
         } else {

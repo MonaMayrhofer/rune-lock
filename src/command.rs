@@ -26,6 +26,12 @@ pub enum SolverCommand {
         position: RunePosition,
         activation: Activation,
     },
+    TryInPosition {
+        position: RunePosition,
+    },
+    TryActivation {
+        activation: Activation,
+    },
 }
 
 impl SolverCommand {
@@ -50,6 +56,16 @@ impl SolverCommand {
             "view" => {
                 let node = args.parse::<usize>()?;
                 Ok(SolverCommand::View { node })
+            }
+            "tryposition" => {
+                let position = args.parse::<usize>()?;
+                let position = RunePosition::new(position);
+                Ok(Self::TryInPosition { position })
+            }
+            "tryactivation" => {
+                let act = args.parse::<u8>()?;
+                let act = Activation::from_human(act)?;
+                Ok(Self::TryActivation { activation: act })
             }
             _ => Err(SolverCommandError::UnknownCommand(command.into())),
         }

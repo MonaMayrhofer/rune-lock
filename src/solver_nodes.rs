@@ -5,7 +5,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{activation::Activation, index::RunePosition, solver::SolverState};
+use crate::{activation::Activation, index::RunePosition, solver::solver_state::SolverState};
 
 #[derive(Debug)]
 pub enum SolverNodeAction {
@@ -15,9 +15,17 @@ pub enum SolverNodeAction {
     },
     Root,
 }
+#[derive(Debug)]
+pub enum SolverNodeState {
+    Unsolvable,
+    Alive,
+    Success,
+}
+
 pub struct SolverNodeData {
     pub deduction_chain: Vec<SolverState>,
     pub action: SolverNodeAction,
+    pub state: SolverNodeState,
 }
 
 struct SolverNode {
@@ -57,6 +65,7 @@ impl SolverNodes {
                 nodes: vec![SolverNode {
                     parent: None,
                     data: SolverNodeData {
+                        state: SolverNodeState::Alive,
                         deduction_chain: vec![initial],
                         action: SolverNodeAction::Root,
                     },
@@ -120,9 +129,19 @@ impl Display for SolverNodeAction {
     }
 }
 
+impl Display for SolverNodeState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SolverNodeState::Unsolvable => write!(f, "✘"),
+            SolverNodeState::Alive => write!(f, " "),
+            SolverNodeState::Success => write!(f, "✔"),
+        }
+    }
+}
+
 impl Display for SolverNodeData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.action)
+        write!(f, "[{}] {}", self.state, self.action)
     }
 }
 
