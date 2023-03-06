@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Activation(u8);
 
 impl Display for Activation {
@@ -20,6 +20,9 @@ pub enum ActivationError {
 impl Activation {
     ///1 based
     pub fn from_human(one_based: u8) -> Result<Self, ActivationError> {
+        if one_based < 1 {
+            return Err(ActivationError::OutOfBounds);
+        }
         Activation::new(one_based - 1)
     }
 

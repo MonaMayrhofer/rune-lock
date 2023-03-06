@@ -13,12 +13,18 @@ pub struct Assignment {
 
 #[derive(Debug, Error)]
 pub enum AssignmentError {
-    #[error("Number {number} was assigned twice to {position_a} and {position_b}")]
-    DoubleAssigned {
-        number: u8,
+    #[error("Activation {activation} was assigned twice to {position_a} and {position_b}")]
+    ActivationDoubleAssigned {
+        activation: Activation,
         position_a: RunePosition,
         position_b: RunePosition,
     },
+    // #[error("Position {position} was assigned twice to {activation_a} and {activation_b}")]
+    // PositionDoubleAssigned {
+    //     position: RunePosition,
+    //     activation_a: Activation,
+    //     activation_b: Activation,
+    // },
 }
 
 impl Assignment {
@@ -37,12 +43,17 @@ impl Assignment {
     }
     pub fn new(assignment: [Option<Activation>; 12]) -> Result<Self, AssignmentError> {
         let mut position_of = [None; 12];
-        for (index, a) in assignment.iter().enumerate() {
+        for (position, a) in assignment.iter().enumerate() {
+            let position = RunePosition::new(position);
             if let Some(a) = a {
-                if position_of[a.index()].is_some() {
-                    panic!("Double Assignment");
+                if let Some(old) = position_of[a.index()] {
+                    return Err(AssignmentError::ActivationDoubleAssigned {
+                        activation: *a,
+                        position_a: position,
+                        position_b: old,
+                    });
                 }
-                position_of[a.index()] = Some(RunePosition::new(index));
+                position_of[a.index()] = Some(position);
             }
         }
 

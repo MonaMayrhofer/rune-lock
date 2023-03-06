@@ -1,13 +1,14 @@
 pub mod activation;
 pub mod assignment;
+pub mod command;
 pub mod index;
 pub mod rule;
 pub mod rune;
 pub mod solver;
+pub mod solver_nodes;
 
 use std::io;
 use std::io::BufRead;
-use std::result;
 
 use activation::Activation;
 use assignment::{print_assignment, Assignment};
@@ -17,6 +18,7 @@ use rule::RuleKind;
 use rune::Rune;
 use thiserror::Error;
 
+use crate::command::SolverCommand;
 use crate::index::RunePosition;
 use crate::solver::Solver;
 
@@ -46,6 +48,17 @@ impl RuneLock {
 
         Ok(())
     }
+}
+
+fn solver_ui(solver: &Solver, lock: &RuneLock) {
+    solver.print_nodes();
+    let fixed = solver.peek().fixed_assignments();
+    print_assignment(&fixed);
+    match lock.validate(&fixed) {
+        Err(err) => println!("Invalid Assignment: {}", err),
+        Ok(_) => println!("Valid State."),
+    }
+    println!("{}", solver.peek());
 }
 
 fn main() {
@@ -86,61 +99,35 @@ fn main() {
 
     println!("{}", "Rune Lock".red());
 
-    print_assignment(&solver.peek().fixed_assignments());
+    solver_ui(&solver, &lock);
     for line in stdin.lock().lines() {
         if let Ok(line) = line {
             //Parse Line
-            let (command, args) = line.split_once(' ').unwrap_or((&line[..], ""));
+            let command = SolverCommand::parse(line.as_str());
             match command {
-                "try" => {}
-                "back" => {
-                    println!("Go back.");
-                    if let Some(err) = solver.back().err() {
-                        println!("Could not go back: {}", err);
-                    }
-                }
-                "set" => {
-                    if let Some((field, target)) = args.split_once(' ') {
-                        println!("{} to {}", field, target);
-                        if let Ok(field) = field.parse::<usize>() {
-                            if let Ok(activation) = target.parse::<u8>() {
-                                if let Ok(activation) = Activation::from_human(activation) {
-                                    let position = RunePosition::new(field);
-                                    if let Some(err) = solver.fix(&lock, position, activation).err()
-                                    {
-                                        println!("Could not fix: {}", err);
-                                    } else {
-                                        println!("Automatically running deductions.");
-                                        let result = solver.iterate_deductions(&lock);
-                                        match result {
-                                            solver::DeductionResult::Unsolvable => {
-                                                println!("{}", "No solution found.".red())
-                                            }
-                                            solver::DeductionResult::Indecisive => {
-                                                println!(
-                                                    "Unclear State, Manual Assumptions required."
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                Err(err) => println!("Didn't understand command: {}", err),
+                Ok(command) => match command {
+                    SolverCommand::View { node } => match solver.view(node) {
+                        Ok(_) => {}
+                        Err(err) => println!("{}", err),
+                    },
+                    SolverCommand::Assume {
+                        position,
+                        activation,
+                    } => {
+                        let result = solver.explore(&lock, position, activation);
+                        match result {
+                            Ok(result) => println!("Result: {}", result),
+                            Err(err) => println!("Error: {}", err),
                         }
                     }
-                }
-                _ => println!("Unknown command."),
+                },
             }
-            let fixed = solver.peek().fixed_assignments();
-            print_assignment(&fixed);
-            match lock.validate(&fixed) {
-                Err(err) => println!("Invalid Assignment: {}", err),
-                Ok(_) => println!("Valid State."),
-            }
-            println!("{}", solver.peek());
         } else {
             break;
         }
 
+        solver_ui(&solver, &lock);
         println!("==============================");
     }
 }
