@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use itertools::Itertools;
 
-use crate::{activation::Activation, index::RunePosition, rule::RuleKind, RuneLock};
+use crate::{
+    activation::Activation, fact_solver::ContradictionKind, index::RunePosition, rule::RuleKind,
+    RuneLock,
+};
 
 use super::{
     fact_db::{FactDb, FactHandle},
@@ -160,20 +163,29 @@ pub fn explain_fact_d(fact_handle: FactHandle, facts: &FactDb, lock: &RuneLock, 
     }
 
     for (fact, position) in similar_but_position.iter() {
+        let positions = position.iter().map(|(_, p)| format!("{}", p)).join(", ");
         let verb = match fact.kind {
-            FactKind::Contradiction => "caused a contradiction on",
-            FactKind::ActivationCannotBeOn => "cannot be on",
-            FactKind::ActivationMustBeOn => "must be on",
+            FactKind::Contradiction(k) => match k {
+                ContradictionKind::ContradictingRequirements => format!(
+                    "{} has contradicting facts regarding position {}",
+                    fact.activation, positions
+                ),
+                ContradictionKind::NoOptionsLeft => {
+                    format!("{} has no options left to go", fact.activation)
+                }
+            },
+            FactKind::ActivationCannotBeOn => {
+                format!("{} cannot be on {}", fact.activation, positions)
+            }
+            FactKind::ActivationMustBeOn => format!("{} must be on {}", fact.activation, positions),
         };
 
-        let positions = position.iter().map(|(_, p)| format!("{}", p)).join(",");
-        println!(
-            "{:1$} -> {2} {3} position(s) {4}",
-            "", inset, fact.activation, verb, positions
-        );
+        println!("{:1$} -> {2}", "", inset, verb);
 
-        for reason in fact.reasons.iter() {
-            print_fact_reason(reason, facts, lock, depth + 1);
+        let mut reasons = fact.reasons.clone();
+        reasons.sort();
+        for reason in reasons {
+            print_fact_reason(&reason, facts, lock, depth + 1);
         }
     }
 }

@@ -5,6 +5,7 @@ use ndarray::{Array2, Axis};
 use crate::{
     activation::Activation,
     assignment::{Assignment, AssignmentError},
+    fact_solver::ContradictionKind,
     index::RunePosition,
     rule::{RuleKind, ValidateTupleError},
     RuneLock,
@@ -15,7 +16,7 @@ use super::{
     DebugInfo, Fact, FactKind, FactReason,
 };
 
-#[derive(Clone, Debug, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FactHandle(usize);
 impl FactHandle {
     pub fn from_raw(node: usize) -> FactHandle {
@@ -56,7 +57,7 @@ impl SingleFactIntegrationResult {
             SingleFactIntegrationResult::Unchanged(handle)
             | SingleFactIntegrationResult::Integrated(handle) => {
                 match db.facts.get(handle.0).unwrap().kind {
-                    FactKind::Contradiction => Err(FactError::Contradiction(handle.clone())),
+                    FactKind::Contradiction(_) => Err(FactError::Contradiction(handle.clone())),
                     FactKind::ActivationCannotBeOn | FactKind::ActivationMustBeOn => Ok(self),
                 }
             }
@@ -141,7 +142,7 @@ impl FactDb {
             match (&existing.kind, &fact.kind) {
                 //New Fact is equivalent to one that already exists
                 (FactKind::ActivationMustBeOn, FactKind::ActivationMustBeOn)
-                | (FactKind::Contradiction, FactKind::Contradiction)
+                | (FactKind::Contradiction(_), FactKind::Contradiction(_))
                 | (FactKind::ActivationCannotBeOn, FactKind::ActivationCannotBeOn) => {
                     //It already exists. Fine. (We could see which one has the shorter reasoning,
                     //but who careessss) (If we did that shorter thingy we have to take care not to
@@ -149,7 +150,7 @@ impl FactDb {
                     return SingleFactIntegrationResult::Unchanged(existing_handle.clone());
                 }
                 //A newcoming Contradictin overwrites All
-                (_, FactKind::Contradiction) => {
+                (_, FactKind::Contradiction(_)) => {
                     let handle = FactHandle(self.facts.len());
                     println!("Created Contradiction {:?}: {:?}", handle, fact);
                     self.facts.push(fact);
@@ -158,7 +159,7 @@ impl FactDb {
                     return SingleFactIntegrationResult::Integrated(handle);
                 }
                 //An existing Contradiction cannot be overwritten
-                (FactKind::Contradiction, _) => {
+                (FactKind::Contradiction(_), _) => {
                     return SingleFactIntegrationResult::Unchanged(existing_handle.clone());
                 }
                 //New Fact contradicts with old Fact
@@ -168,7 +169,7 @@ impl FactDb {
                     self.facts.push(fact.clone());
 
                     let contradiction = Fact {
-                        kind: FactKind::Contradiction,
+                        kind: FactKind::Contradiction(ContradictionKind::ContradictingRequirements),
                         reasons: vec![
                             FactReason::Fact(
                                 existing_handle.clone(),
@@ -269,7 +270,7 @@ impl FactDb {
                     let complement = T::Complement::from_usize(complement);
                     if let Some(fact) = fact {
                         match self.facts.get(fact.0).unwrap().kind {
-                            FactKind::Contradiction => {
+                            FactKind::Contradiction(_) => {
                                 //TODO WHat ?
                             }
                             FactKind::ActivationMustBeOn => {
@@ -304,7 +305,7 @@ impl FactDb {
                         for (complement, _) in complements.iter().enumerate() {
                             let complement = T::Complement::from_usize(complement);
                             integrations.push(Fact {
-                                kind: FactKind::Contradiction,
+                                kind: FactKind::Contradiction(ContradictionKind::NoOptionsLeft),
                                 activation: T::choose_activation(view, complement),
                                 position: T::choose_position(view, complement),
                                 reasons: reasons.clone(),
@@ -342,7 +343,7 @@ impl FactDb {
                     Some(it) => {
                         let fact = &self.facts[it.0];
                         match fact.kind {
-                            FactKind::Contradiction => {
+                            FactKind::Contradiction(_) => {
                                 print!("|X{:^5}X", it.0);
                             }
                             FactKind::ActivationCannotBeOn => {
@@ -541,7 +542,7 @@ impl FactDb {
                 println!("@ {:?} {:?}", complement, handle);
                 if let Some(handle) = handle {
                     match self.facts.get(handle.0).unwrap().kind {
-                        FactKind::Contradiction => None,
+                        FactKind::Contradiction(_) => None,
                         FactKind::ActivationCannotBeOn => None,
                         FactKind::ActivationMustBeOn => Some(complement),
                     }
@@ -631,12 +632,24 @@ impl Display for FactHandle {
 
 impl Display for Fact {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let verb = match self.kind {
-            FactKind::Contradiction => "caused a Contradiction on",
-            FactKind::ActivationCannotBeOn => "cannot be on",
-            FactKind::ActivationMustBeOn => "must be on",
-        };
-        write!(f, "{} {} position {}", self.activation, verb, self.position)
+        match self.kind {
+            FactKind::Contradiction(k) => match k {
+                ContradictionKind::ContradictingRequirements => write!(
+                    f,
+                    "{} has contradicting facts regarding position {}",
+                    self.activation, self.position
+                ),
+                ContradictionKind::NoOptionsLeft => {
+                    write!(f, "{} has no options left to go", self.activation)
+                }
+            },
+            FactKind::ActivationCannotBeOn => {
+                write!(f, "{} cannot be on {}", self.activation, self.position)
+            }
+            FactKind::ActivationMustBeOn => {
+                write!(f, "{} must be on {}", self.activation, self.position)
+            }
+        }
     }
 }
 

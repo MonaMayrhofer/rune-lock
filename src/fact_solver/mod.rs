@@ -3,7 +3,10 @@ mod explainer;
 pub mod fact_db;
 pub mod view;
 
-use std::fmt::{Debug, Display, Formatter};
+use std::{
+    cmp::Ordering,
+    fmt::{Debug, Display, Formatter},
+};
 
 use slotmap::{new_key_type, SlotMap};
 
@@ -23,8 +26,14 @@ pub struct DebugInfo {
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub enum ContradictionKind {
+    ContradictingRequirements,
+    NoOptionsLeft,
+}
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub enum FactKind {
-    Contradiction,
+    Contradiction(ContradictionKind),
     ActivationCannotBeOn,
     ActivationMustBeOn,
 }
@@ -34,6 +43,24 @@ pub enum FactReason {
     Fact(FactHandle, DebugInfo),
     Rule(usize),
     Assumption,
+}
+
+impl PartialOrd for FactReason {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for FactReason {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (other, self) {
+            (FactReason::Fact(h, _), FactReason::Fact(o, _)) => h.cmp(o),
+            (FactReason::Rule(r), FactReason::Rule(o)) => r.cmp(o),
+            (FactReason::Assumption, _) => Ordering::Greater,
+            (_, FactReason::Assumption) => Ordering::Less,
+            (FactReason::Rule(_), _) => Ordering::Greater,
+            (_, FactReason::Rule(_)) => Ordering::Less,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
