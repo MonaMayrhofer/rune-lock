@@ -240,4 +240,15 @@ impl RuleKind {
             },
         }
     }
+
+    pub fn validate_tuple(
+        &self,
+        lock: &RuneLock,
+        a: (RunePosition, Activation),
+        b: (RunePosition, Activation),
+    ) -> Result<(), RuleError> {
+        //TODO Speed this up
+        let fake_assignment = Assignment::from_tuple_iter([a, b].into_iter()).unwrap();
+        self.validate(lock, &fake_assignment)
+    }
 }

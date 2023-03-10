@@ -1,6 +1,7 @@
 pub mod activation;
 pub mod assignment;
 pub mod command;
+pub mod fact_solver;
 pub mod index;
 pub mod rule;
 pub mod rune;
@@ -11,7 +12,7 @@ use std::io;
 use std::io::BufRead;
 
 use activation::Activation;
-use assignment::{print_assignment, Assignment};
+use assignment::Assignment;
 use crossterm::style::Stylize;
 use rule::ActivationRuleKindHelpers;
 use rule::RuleKind;
@@ -19,7 +20,8 @@ use rune::Rune;
 use thiserror::Error;
 
 use crate::command::SolverCommand;
-use crate::index::RunePosition;
+use crate::fact_solver::FactualSolver;
+
 use crate::solver::Solver;
 
 pub struct RuneLock {
@@ -48,17 +50,6 @@ impl RuneLock {
 
         Ok(())
     }
-}
-
-fn solver_ui(solver: &Solver, lock: &RuneLock) {
-    solver.print_nodes();
-    let fixed = solver.peek().fixed_assignments();
-    print_assignment(&fixed);
-    match lock.validate(&fixed) {
-        Err(err) => println!("Invalid Assignment: {}", err),
-        Ok(_) => println!("Valid State."),
-    }
-    println!("{}", solver.peek());
 }
 
 fn main() {
@@ -94,13 +85,14 @@ fn main() {
         ],
     };
 
-    let mut solver = Solver::new();
+    let mut solver = FactualSolver::new(&lock);
     // let mut assignment = Assignment::new([None; 12]).unwrap();
     let stdin = io::stdin();
 
     println!("{}", "Rune Lock".red());
 
-    solver_ui(&solver, &lock);
+    // solver_ui(&solver, &lock);
+    solver.display_ui();
     for line in stdin.lock().lines() {
         if let Ok(line) = line {
             //Parse Line
@@ -108,33 +100,21 @@ fn main() {
             match command {
                 Err(err) => println!("Didn't understand command: {}", err),
                 Ok(command) => match command {
-                    SolverCommand::View { node } => match solver.view(node) {
-                        Ok(_) => {}
-                        Err(err) => println!("{}", err),
-                    },
+                    SolverCommand::View { node } => todo!(),
                     SolverCommand::Assume {
                         position,
                         activation,
                     } => {
-                        let result = solver.explore(&lock, position, activation);
-                        match result {
-                            Ok(result) => println!("Result: {}", result),
-                            Err(err) => println!("Error: {}", err),
-                        }
+                        solver.assume(activation, position);
                     }
                     SolverCommand::TryInPosition { position } => {
-                        let result = solver.try_in_position(&lock, position);
-                        match result {
-                            Ok(result) => println!("Result: {}", result),
-                            Err(err) => println!("Error: {}", err),
-                        }
+                        todo!()
                     }
                     SolverCommand::TryActivation { activation } => {
-                        let result = solver.try_activation(&lock, activation);
-                        match result {
-                            Ok(result) => println!("Result: {}", result),
-                            Err(err) => println!("Error: {}", err),
-                        }
+                        todo!()
+                    }
+                    SolverCommand::Explain { fact_handle } => {
+                        solver.explain(fact_handle);
                     }
                 },
             }
@@ -142,7 +122,7 @@ fn main() {
             break;
         }
 
-        solver_ui(&solver, &lock);
+        solver.display_ui();
         println!("==============================");
     }
 }

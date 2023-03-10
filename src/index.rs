@@ -67,6 +67,10 @@ impl RunePosition {
             false => (self.0 + 6) % 12 == two.0,
         };
     }
+
+    pub fn index(&self) -> usize {
+        self.0
+    }
 }
 
 impl<T> Index<RunePosition> for [T; 12] {

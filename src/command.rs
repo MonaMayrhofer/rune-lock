@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::{
     activation::{Activation, ActivationError},
+    fact_solver::fact_db::FactHandle,
     index::RunePosition,
 };
 
@@ -32,6 +33,9 @@ pub enum SolverCommand {
     TryActivation {
         activation: Activation,
     },
+    Explain {
+        fact_handle: FactHandle,
+    },
 }
 
 impl SolverCommand {
@@ -56,6 +60,12 @@ impl SolverCommand {
             "view" | "v" => {
                 let node = args.parse::<usize>()?;
                 Ok(SolverCommand::View { node })
+            }
+            "explain" | "e" => {
+                let node = args.parse::<usize>()?;
+                Ok(SolverCommand::Explain {
+                    fact_handle: FactHandle::from_raw(node),
+                })
             }
             "tryposition" | "tp" => {
                 let position = args.parse::<usize>()?;

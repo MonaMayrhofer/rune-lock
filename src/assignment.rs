@@ -19,15 +19,32 @@ pub enum AssignmentError {
         position_a: RunePosition,
         position_b: RunePosition,
     },
-    // #[error("Position {position} was assigned twice to {activation_a} and {activation_b}")]
-    // PositionDoubleAssigned {
-    //     position: RunePosition,
-    //     activation_a: Activation,
-    //     activation_b: Activation,
-    // },
+    #[error("Position {position} was assigned twice to {activation_a} and {activation_b}")]
+    PositionDoubleAssigned {
+        position: RunePosition,
+        activation_a: Activation,
+        activation_b: Activation,
+    },
 }
 
 impl Assignment {
+    pub fn from_tuple_iter(
+        assignment: impl Iterator<Item = (RunePosition, Activation)>,
+    ) -> Result<Self, AssignmentError> {
+        let mut target = [None; 12];
+        for (pos, activation) in assignment {
+            if let Some(existing) = target[pos.index()] {
+                return Err(AssignmentError::PositionDoubleAssigned {
+                    position: pos,
+                    activation_a: activation,
+                    activation_b: existing,
+                });
+            } else {
+                target[pos.index()] = Some(activation);
+            }
+        }
+        Self::new(target)
+    }
     pub fn from_iter(
         mut assignment: impl Iterator<Item = Option<Activation>>,
     ) -> Result<Self, AssignmentError> {
@@ -81,6 +98,38 @@ impl Assignment {
     pub fn contains(&self, a: Activation) -> bool {
         self.activation_of_position.iter().any(|it| *it == Some(a))
     }
+
+    pub fn print(&self) {
+        let assignment: Vec<_> = self
+            .activation_of_position
+            .iter()
+            .enumerate()
+            .map(|(index, it)| match it {
+                Some(it) => format!("{:3}", format!("{}", it)),
+                None => format!(
+                    "{}{:3}{}",
+                    SetForegroundColor(Color::DarkGrey),
+                    index,
+                    ResetColor,
+                ),
+            })
+            .collect();
+        println!(
+            include_str!("hexagon.txt"),
+            assignment[0],
+            assignment[1],
+            assignment[2],
+            assignment[3],
+            assignment[4],
+            assignment[5],
+            assignment[6],
+            assignment[7],
+            assignment[8],
+            assignment[9],
+            assignment[10],
+            assignment[11],
+        )
+    }
 }
 
 impl Index<RunePosition> for Assignment {
@@ -94,36 +143,4 @@ impl IndexMut<RunePosition> for Assignment {
     fn index_mut(&mut self, index: RunePosition) -> &mut Self::Output {
         &mut self.activation_of_position[index]
     }
-}
-
-pub fn print_assignment(assignment: &Assignment) {
-    let assignment: Vec<_> = assignment
-        .activation_of_position
-        .iter()
-        .enumerate()
-        .map(|(index, it)| match it {
-            Some(it) => format!("{:3}", format!("{}", it)),
-            None => format!(
-                "{}{:3}{}",
-                SetForegroundColor(Color::DarkGrey),
-                index,
-                ResetColor,
-            ),
-        })
-        .collect();
-    println!(
-        include_str!("hexagon.txt"),
-        assignment[0],
-        assignment[1],
-        assignment[2],
-        assignment[3],
-        assignment[4],
-        assignment[5],
-        assignment[6],
-        assignment[7],
-        assignment[8],
-        assignment[9],
-        assignment[10],
-        assignment[11],
-    )
 }
