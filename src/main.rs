@@ -11,7 +11,6 @@ pub mod solver_nodes;
 use std::io;
 use std::io::BufRead;
 
-use activation::Activation;
 use assignment::Assignment;
 use crossterm::style::Stylize;
 use rule::ActivationRuleKindHelpers;
@@ -21,8 +20,6 @@ use thiserror::Error;
 
 use crate::command::SolverCommand;
 use crate::fact_solver::FactualSolver;
-
-use crate::solver::Solver;
 
 pub struct RuneLock {
     //Address: Outer Circle, then Inner Circle
@@ -100,7 +97,10 @@ fn main() {
             match command {
                 Err(err) => println!("Didn't understand command: {}", err),
                 Ok(command) => match command {
-                    SolverCommand::View { node } => todo!(),
+                    SolverCommand::View { node } => match solver.get_tree_handle(node) {
+                        Ok(handle) => solver.set_current(handle),
+                        Err(err) => println!("{}", err),
+                    },
                     SolverCommand::Assume {
                         position,
                         activation,
@@ -108,10 +108,10 @@ fn main() {
                         solver.assume(activation, position);
                     }
                     SolverCommand::TryInPosition { position } => {
-                        todo!()
+                        solver.try_possibilities(position);
                     }
                     SolverCommand::TryActivation { activation } => {
-                        todo!()
+                        solver.try_possibilities(activation);
                     }
                     SolverCommand::Explain { fact_handle } => {
                         solver.explain(fact_handle);

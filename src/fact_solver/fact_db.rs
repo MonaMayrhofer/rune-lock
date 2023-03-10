@@ -340,10 +340,11 @@ impl FactDb {
                                     rule, this, other, activation, position
                                 );
                                 for possibility in self.possibilities_for(*other) {
-                                    // if possibility == position {
-                                    //     continue; //TODO This should be handled by
-                                    //               //possibilities_for
-                                    // }
+                                    // possibility == position and similar shenanigans can happen,
+                                    // because it might be that the previous consolidation has
+                                    // inserted a fact, that hasn't had the chance to be
+                                    // consolidated as well yet. Therefore Invalid Assignment
+                                    // Errors can happen
                                     match rule.validate_tuple(
                                         lock,
                                         (position, activation),
@@ -426,7 +427,7 @@ impl FactDb {
         Assignment::from_tuple_iter(self.givens().map(|it| it.0))
     }
 
-    fn possibilities_for<'a, T: View + Debug>(
+    pub fn possibilities_for<'a, T: View + Debug>(
         &'a self,
         view: T,
     ) -> impl Iterator<Item = T::Complement> + 'a

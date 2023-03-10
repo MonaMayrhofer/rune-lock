@@ -2,15 +2,16 @@ pub mod assumption_tree;
 pub mod fact_db;
 pub mod view;
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use slotmap::{new_key_type, SlotMap};
 
 use crate::{activation::Activation, index::RunePosition, RuneLock};
 
 use self::{
-    assumption_tree::{AssumptionTree, AssumptionTreeNodeHandle},
-    fact_db::{FactDb, FactHandle},
+    assumption_tree::{AssumptionTree, AssumptionTreeError, AssumptionTreeNodeHandle},
+    fact_db::{FactDb, FactError::Contradiction, FactHandle},
+    view::{ChooseView, View},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -124,7 +125,7 @@ impl<'a> FactualSolver<'a> {
         ) {
             Ok(_) => SolverStateState::Unexplored,
             Err(err) => match err {
-                fact_db::FactError::Contradiction(reason) => SolverStateState::Contradicts(reason),
+                Contradiction(reason) => SolverStateState::Contradicts(reason),
             },
         };
 
@@ -141,8 +142,37 @@ impl<'a> FactualSolver<'a> {
         );
     }
 
+    pub fn try_possibilities<T: View + Debug + ChooseView + Clone>(&mut self, it: T)
+    where
+        T::Complement: Debug + Clone,
+    {
+        let current = self.current;
+        let current_facts = &self.states[current].facts;
+        let possibilities: Vec<_> = current_facts.possibilities_for(it.clone()).collect();
+
+        for possibility in possibilities {
+            self.assume(
+                T::choose_activation(it.clone(), possibility.clone()),
+                T::choose_position(it.clone(), possibility.clone()),
+            );
+            self.current = current;
+        }
+    }
+
+    pub fn get_tree_handle(
+        &self,
+        node_id: usize,
+    ) -> Result<AssumptionTreeNodeHandle, AssumptionTreeError> {
+        self.states.get_handle(node_id)
+    }
+
+    pub fn set_current(&mut self, new: AssumptionTreeNodeHandle) {
+        self.current = new;
+    }
+
     pub fn display_ui(&self) {
         println!("{}", self.states);
+        println!("Current State: {}", self.current);
         let fixed = self.states[self.current].facts.fixed_assignment().unwrap();
         fixed.print();
         match self.lock.validate(&fixed) {
