@@ -35,7 +35,9 @@ pub enum SolverCommand {
     },
     Explain {
         fact_handle: FactHandle,
+        max_depth: usize,
     },
+    Dump,
 }
 
 impl SolverCommand {
@@ -62,9 +64,14 @@ impl SolverCommand {
                 Ok(SolverCommand::View { node })
             }
             "explain" | "e" => {
-                let node = args.parse::<usize>()?;
+                let (fact, depth) = args
+                    .split_once(' ')
+                    .ok_or(SolverCommandError::NotEnoughArguments { expected: 2 })?;
+                let fact = fact.parse::<usize>()?;
+                let depth = depth.parse::<usize>()?;
                 Ok(SolverCommand::Explain {
-                    fact_handle: FactHandle::from_raw(node),
+                    fact_handle: FactHandle::from_raw(fact),
+                    max_depth: depth,
                 })
             }
             "tryposition" | "tp" => {
@@ -77,6 +84,7 @@ impl SolverCommand {
                 let act = Activation::from_human(act)?;
                 Ok(Self::TryActivation { activation: act })
             }
+            "dump" | "d" => Ok(Self::Dump),
             _ => Err(SolverCommandError::UnknownCommand(command.into())),
         }
     }

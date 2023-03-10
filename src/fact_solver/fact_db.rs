@@ -29,6 +29,7 @@ pub struct FactDb {
     fact_lookup: Array2<Option<FactHandle>>,
 }
 
+#[derive(Debug)]
 pub enum Possibilities<T> {
     None,
     Single(T),
@@ -94,15 +95,27 @@ impl FactDb {
             SingleFactIntegrationResult::Integrated(_) => {
                 loop {
                     let mut changed = false;
-                    if let ConsolidationResult::Changes = self.consolidate_view::<RunePosition>()? {
+                    println!("==\n==\n== Unique per RunePosition");
+                    if let ConsolidationResult::Changes =
+                        self.consolidate_unique_per_view::<RunePosition>()?
+                    {
                         changed = true
                     }
-                    if let ConsolidationResult::Changes = self.consolidate_view::<Activation>()? {
+                    self.info_dump();
+                    println!("==\n==\n== Unique per Activation");
+                    if let ConsolidationResult::Changes =
+                        self.consolidate_unique_per_view::<Activation>()?
+                    {
                         changed = true
                     }
+                    self.info_dump();
+                    println!("==\n==\n== Rules");
                     if let ConsolidationResult::Changes = self.consolidate_rules(lock)? {
                         changed = true
                     }
+                    self.info_dump();
+
+                    println!("Changes? {:?}", changed);
                     if !changed {
                         break;
                     }
@@ -121,8 +134,34 @@ impl FactDb {
         let handle = if let Some(existing_handle) = existing_fact {
             let existing = self.facts.get(existing_handle.0).unwrap();
 
+            //If the new rule already exists...
+            if existing.kind == fact.kind {}
+
             //Integrate current into existing
             match (&existing.kind, &fact.kind) {
+                //New Fact is equivalent to one that already exists
+                (FactKind::ActivationMustBeOn, FactKind::ActivationMustBeOn)
+                | (FactKind::Contradiction, FactKind::Contradiction)
+                | (FactKind::ActivationCannotBeOn, FactKind::ActivationCannotBeOn) => {
+                    //It already exists. Fine. (We could see which one has the shorter reasoning,
+                    //but who careessss) (If we did that shorter thingy we have to take care not to
+                    //run into circular reasoning with consolidate)
+                    return SingleFactIntegrationResult::Unchanged(existing_handle.clone());
+                }
+                //A newcoming Contradictin overwrites All
+                (_, FactKind::Contradiction) => {
+                    let handle = FactHandle(self.facts.len());
+                    println!("Created Contradiction {:?}: {:?}", handle, fact);
+                    self.facts.push(fact);
+                    *existing_fact = Some(handle);
+
+                    return SingleFactIntegrationResult::Integrated(handle);
+                }
+                //An existing Contradiction cannot be overwritten
+                (FactKind::Contradiction, _) => {
+                    return SingleFactIntegrationResult::Unchanged(existing_handle.clone());
+                }
+                //New Fact contradicts with old Fact
                 (FactKind::ActivationCannotBeOn, FactKind::ActivationMustBeOn)
                 | (FactKind::ActivationMustBeOn, FactKind::ActivationCannotBeOn) => {
                     let new_handle = FactHandle(self.facts.len());
@@ -155,16 +194,6 @@ impl FactDb {
 
                     return SingleFactIntegrationResult::Integrated(contradicting_handle.clone());
                 }
-                (FactKind::ActivationMustBeOn, FactKind::ActivationMustBeOn)
-                | (FactKind::ActivationCannotBeOn, FactKind::ActivationCannotBeOn) => {
-                    //It already exists. Fine. (We could see which one has the shorter reasoning,
-                    //but who careessss) (If we did that shorter thingy we have to take care not to
-                    //run into circular reasoning with consolidate)
-                    return SingleFactIntegrationResult::Unchanged(existing_handle.clone());
-                }
-                (FactKind::Contradiction, _) | (_, FactKind::Contradiction) => {
-                    return SingleFactIntegrationResult::Unchanged(existing_handle.clone());
-                }
             }
         } else {
             let handle = FactHandle(self.facts.len());
@@ -176,9 +205,11 @@ impl FactDb {
         };
     }
 
-    fn consolidate_view<T: View + ChooseView>(&mut self) -> Result<ConsolidationResult, FactError>
+    fn consolidate_unique_per_view<T: View + ChooseView>(
+        &mut self,
+    ) -> Result<ConsolidationResult, FactError>
     where
-        T::Complement: PartialEq + Copy,
+        T::Complement: PartialEq + Copy + Debug,
         T: Copy + Debug,
     {
         let mut integrations = Vec::new();
@@ -258,13 +289,29 @@ impl FactDb {
                     }
                 }
 
-                if let Possibilities::Single(possibility) = possibility {
-                    integrations.push(Fact {
-                        kind: FactKind::ActivationMustBeOn,
-                        activation: T::choose_activation(view, possibility),
-                        position: T::choose_position(view, possibility),
-                        reasons,
-                    });
+                println!("Found Possibilities: {:?}", possibility);
+
+                match possibility {
+                    Possibilities::Single(possibility) => {
+                        integrations.push(Fact {
+                            kind: FactKind::ActivationMustBeOn,
+                            activation: T::choose_activation(view, possibility),
+                            position: T::choose_position(view, possibility),
+                            reasons,
+                        });
+                    }
+                    Possibilities::None => {
+                        for (complement, _) in complements.iter().enumerate() {
+                            let complement = T::Complement::from_usize(complement);
+                            integrations.push(Fact {
+                                kind: FactKind::Contradiction,
+                                activation: T::choose_activation(view, complement),
+                                position: T::choose_position(view, complement),
+                                reasons: reasons.clone(),
+                            })
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -272,7 +319,7 @@ impl FactDb {
         self.integrate_consolidation(integrations)
     }
 
-    fn info_dump(&self) {
+    pub fn info_dump(&self) {
         println!("Current knowledge:= ======= ======");
         for (i, f) in self.facts.iter().enumerate() {
             println!("Fact {}, {:?}", i, f);
@@ -321,8 +368,11 @@ impl FactDb {
         self.info_dump();
 
         //Second check the implications of the current assignment
-        for ((position, activation), fact) in self.givens() {
-            println!("Given: {:?} {:?} through {:?}", position, activation, fact);
+        for ((given_position, given_activation), fact) in self.givens() {
+            println!(
+                "Given: {:?} {:?} through {:?}",
+                given_position, given_activation, fact
+            );
             //Get all rules which affect this given
             for (rule_index, rule) in lock.rules.iter().enumerate() {
                 match rule {
@@ -334,10 +384,10 @@ impl FactDb {
                     | RuleKind::IncreaseSantor { first, second }
                     | RuleKind::Max0Conductive { first, second } => {
                         for (this, other) in [(first, second), (second, first)] {
-                            if *this == activation {
+                            if *this == given_activation {
                                 println!(
                                     "Consolidating Rule: {:?} in config {:?}-{:?} for {:?}@{:?}",
-                                    rule, this, other, activation, position
+                                    rule, this, other, given_activation, given_position
                                 );
                                 for possibility in self.possibilities_for(*other) {
                                     // possibility == position and similar shenanigans can happen,
@@ -347,28 +397,24 @@ impl FactDb {
                                     // Errors can happen
                                     match rule.validate_tuple(
                                         lock,
-                                        (position, activation),
+                                        (given_position, given_activation),
                                         (possibility, *other),
                                     ) {
                                         Ok(_) => {}
-                                        Err(err) => match err {
-                                            ValidateTupleError::InvalidAssignment(_)
-                                            | ValidateTupleError::RuleError(_) => integrations
-                                                .push(Fact {
-                                                    kind: FactKind::ActivationCannotBeOn,
-                                                    activation: *other,
-                                                    position: possibility,
-                                                    reasons: vec![
-                                                        FactReason::Fact(
-                                                            fact,
-                                                            DebugInfo {
-                                                                origin: "consolidate_rules",
-                                                            },
-                                                        ),
-                                                        FactReason::Rule(rule_index),
-                                                    ],
-                                                }),
-                                        },
+                                        Err(_) => integrations.push(Fact {
+                                            kind: FactKind::ActivationCannotBeOn,
+                                            activation: *other,
+                                            position: possibility,
+                                            reasons: vec![
+                                                FactReason::Fact(
+                                                    fact,
+                                                    DebugInfo {
+                                                        origin: "consolidate_rules",
+                                                    },
+                                                ),
+                                                FactReason::Rule(rule_index),
+                                            ],
+                                        }),
                                     }
                                 }
                             }
@@ -377,12 +423,62 @@ impl FactDb {
                         }
                     }
                     RuleKind::RuneFollowsImmediately { first, second } => {
-                        println!("RuneFollowsImmediately is not yet implemented for consolidation");
+                        let given_rune = lock.runes[given_position];
+                        for (rune, affected_activation) in [
+                            (first, given_activation.next()),
+                            (second, given_activation.prev()),
+                        ] {
+                            if given_rune == *rune {
+                                match affected_activation {
+                                    Ok(affected_activation) => {
+                                        for possibility in
+                                            self.possibilities_for(affected_activation)
+                                        {
+                                            match rule.validate_tuple(
+                                                lock,
+                                                (given_position, given_activation),
+                                                (possibility, affected_activation),
+                                            ) {
+                                                Ok(_) => {}
+                                                Err(_) => integrations.push(Fact {
+                                                    kind: FactKind::ActivationCannotBeOn,
+                                                    activation: affected_activation,
+                                                    position: possibility,
+                                                    reasons: vec![
+                                                        FactReason::Fact(
+                                                            fact,
+                                                            DebugInfo {
+                                                                origin: "consolidate_rules runes",
+                                                            },
+                                                        ),
+                                                        FactReason::Rule(rule_index),
+                                                    ],
+                                                }),
+                                            }
+                                        }
+                                    }
+                                    Err(_) => integrations.push(Fact {
+                                        kind: FactKind::ActivationCannotBeOn,
+                                        activation: given_activation,
+                                        position: given_position,
+                                        reasons: vec![
+                                            FactReason::Fact(
+                                                fact,
+                                                DebugInfo {
+                                                    origin: "consolidate_rules runes",
+                                                },
+                                            ),
+                                            FactReason::Rule(rule_index),
+                                        ],
+                                    }),
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        self.integrate_consolidation(integrations)
+        return self.integrate_consolidation(integrations);
     }
 
     fn integrate_consolidation(
@@ -459,22 +555,52 @@ impl FactDb {
             })
     }
 
-    pub fn explain(&self, fact_handle: FactHandle) {
-        fn explain_fact(db: &FactDb, handle: FactHandle, inset: usize) {
+    pub fn explain(&self, fact_handle: FactHandle, lock: &RuneLock, max_depth: usize) {
+        fn explain_fact(
+            db: &FactDb,
+            lock: &RuneLock,
+            handle: FactHandle,
+            current_depth: usize,
+            max_depth: usize,
+        ) {
+            if current_depth > max_depth {
+                return;
+            }
             match db.facts.get(handle.0) {
                 Some(fact) => {
                     println!("{}: {}", handle, fact);
-                    for reason in fact.reasons.iter() {
+                    let mut reasons = fact.reasons.clone();
+                    reasons.sort_by_key(|a| match a {
+                        FactReason::Fact(handle, _) => 10000 + handle.0,
+                        FactReason::Rule(rule) => 10 + rule,
+                        FactReason::Assumption => 0,
+                    });
+                    for reason in reasons {
                         match reason {
-                            FactReason::Fact(fact, debug_info) => {
-                                print!("{0:1$}  -> (from {2})", "", inset, debug_info.origin);
-                                explain_fact(db, fact.clone(), inset + 4)
+                            FactReason::Fact(fact, _debug_info) => {
+                                // print!("{0:1$}  -> (from {2})", "", inset, debug_info.origin);
+                                if current_depth + 1 <= max_depth {
+                                    print!("{0:1$}  -> ", "", current_depth * 4);
+                                    explain_fact(
+                                        db,
+                                        lock,
+                                        fact.clone(),
+                                        current_depth + 1,
+                                        max_depth,
+                                    )
+                                }
                             }
                             FactReason::Rule(rule) => {
-                                println!("{0:1$}  -> Rule {2}", "", inset, rule)
+                                println!(
+                                    "{0:1$}  -> Rule {2} '{3}'",
+                                    "",
+                                    current_depth * 4,
+                                    rule,
+                                    lock.rules[rule]
+                                )
                             }
                             FactReason::Assumption => {
-                                println!("{0:1$}  -> Fact is Assumed", "", inset)
+                                println!("{0:1$}  -> Fact is Assumed", "", current_depth * 4)
                             }
                         }
                     }
@@ -483,7 +609,7 @@ impl FactDb {
             }
         }
 
-        explain_fact(self, fact_handle, 0);
+        explain_fact(self, lock, fact_handle, 0, max_depth);
     }
 }
 
@@ -506,7 +632,7 @@ impl Display for Fact {
             FactKind::ActivationCannotBeOn => "cannot be on",
             FactKind::ActivationMustBeOn => "must be on",
         };
-        write!(f, "{} {} {}", self.position, verb, self.activation)
+        write!(f, "{} {} position {}", self.activation, verb, self.position)
     }
 }
 

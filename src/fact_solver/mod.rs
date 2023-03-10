@@ -128,6 +128,10 @@ impl<'a> FactualSolver<'a> {
                 Contradiction(reason) => SolverStateState::Contradicts(reason),
             },
         };
+        println!(
+            "================================================================ {:?}!",
+            state
+        );
 
         self.current = self.states.insert_child(
             self.current,
@@ -182,9 +186,13 @@ impl<'a> FactualSolver<'a> {
         println!("{}", self.states[self.current].facts);
     }
 
-    pub fn explain(&self, fact_handle: FactHandle) {
+    pub fn explain(&self, fact_handle: FactHandle, max_depth: usize) {
         println!("Explaining Fact: {} in state {}", fact_handle, self.current);
         let db = &self.states[self.current].facts;
-        db.explain(fact_handle);
+        db.explain(fact_handle, self.lock, max_depth);
+    }
+
+    pub fn dump_knowledge(&self) {
+        self.states[self.current].facts.info_dump();
     }
 }

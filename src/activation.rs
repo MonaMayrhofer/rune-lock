@@ -41,4 +41,11 @@ impl Activation {
     pub fn next(&self) -> Result<Self, ActivationError> {
         Activation::new(self.0 + 1)
     }
+
+    pub(crate) fn prev(&self) -> Result<Activation, ActivationError> {
+        if self.0 == 0 {
+            return Err(ActivationError::OutOfBounds);
+        }
+        Activation::new(self.0 - 1)
+    }
 }
