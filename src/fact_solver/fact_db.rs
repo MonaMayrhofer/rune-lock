@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use ndarray::{Array2, Axis};
 
@@ -6,11 +6,14 @@ use crate::{
     activation::Activation,
     assignment::{Assignment, AssignmentError},
     index::RunePosition,
-    rule::RuleKind,
+    rule::{RuleKind, ValidateTupleError},
     RuneLock,
 };
 
-use super::{view::View, Fact, FactKind, FactReason};
+use super::{
+    view::{ChooseView, View},
+    DebugInfo, Fact, FactKind, FactReason,
+};
 
 #[derive(Clone, Debug, Copy)]
 pub struct FactHandle(usize);
@@ -88,13 +91,13 @@ impl FactDb {
             .expect_without_contradiction(self)?
         {
             SingleFactIntegrationResult::Unchanged(_) => Ok(()),
-            SingleFactIntegrationResult::Integrated(handle) => {
+            SingleFactIntegrationResult::Integrated(_) => {
                 loop {
                     let mut changed = false;
-                    if let ConsolidationResult::Changes = self.consolidate_positions()? {
+                    if let ConsolidationResult::Changes = self.consolidate_view::<RunePosition>()? {
                         changed = true
                     }
-                    if let ConsolidationResult::Changes = self.consolidate_activations()? {
+                    if let ConsolidationResult::Changes = self.consolidate_view::<Activation>()? {
                         changed = true
                     }
                     if let ConsolidationResult::Changes = self.consolidate_rules(lock)? {
@@ -128,12 +131,26 @@ impl FactDb {
                     let contradiction = Fact {
                         kind: FactKind::Contradiction,
                         reasons: vec![
-                            FactReason::Fact(existing_handle.clone()),
-                            FactReason::Fact(new_handle),
+                            FactReason::Fact(
+                                existing_handle.clone(),
+                                DebugInfo {
+                                    origin: "integrate_single_fact",
+                                },
+                            ),
+                            FactReason::Fact(
+                                new_handle,
+                                DebugInfo {
+                                    origin: "integrate_single_fact",
+                                },
+                            ),
                         ],
                         ..fact
                     };
                     let contradicting_handle = FactHandle(self.facts.len());
+                    println!(
+                        "Created Contradiction {:?}: {}",
+                        contradicting_handle, contradiction
+                    );
                     self.facts.push(contradiction);
 
                     return SingleFactIntegrationResult::Integrated(contradicting_handle.clone());
@@ -151,6 +168,7 @@ impl FactDb {
             }
         } else {
             let handle = FactHandle(self.facts.len());
+            println!("Created Fact {:?}: {:?}", handle, fact);
             self.facts.push(fact);
             *existing_fact = Some(handle);
 
@@ -158,33 +176,56 @@ impl FactDb {
         };
     }
 
-    fn consolidate_activations(&mut self) -> Result<ConsolidationResult, FactError> {
+    fn consolidate_view<T: View + ChooseView>(&mut self) -> Result<ConsolidationResult, FactError>
+    where
+        T::Complement: PartialEq + Copy,
+        T: Copy + Debug,
+    {
         let mut integrations = Vec::new();
-        for (activation, positions) in self.fact_lookup.columns().into_iter().enumerate() {
-            let activation = Activation::new(activation as u8).unwrap();
+        for (view, complements) in self
+            .fact_lookup
+            .lanes(T::Complement::axis())
+            .into_iter()
+            .enumerate()
+        {
+            let view = T::from_usize(view);
+            println!("Consolidating View {:?}", view);
 
-            let must_be_fact = positions.iter().find_map(|fact| {
-                if let Some(fact) = fact {
-                    match self.facts.get(fact.0).unwrap().kind {
-                        FactKind::ActivationMustBeOn => Some(fact),
-                        _ => None,
+            let must_be_fact = complements
+                .iter()
+                .enumerate()
+                .find_map(|(complement, fact)| {
+                    let complement = T::Complement::from_usize(complement);
+                    if let Some(fact) = fact {
+                        match self.facts.get(fact.0).unwrap().kind {
+                            FactKind::ActivationMustBeOn => Some((fact, complement)),
+                            _ => None,
+                        }
+                    } else {
+                        None
                     }
-                } else {
-                    None
-                }
-            });
+                });
 
             //If there is a must-be fact, then set all others to can't be with the mustbe as the reason
             //If there are multiple-must bes the integrate_single_fact takes care of the
             //contradiction
-            if let Some(must_be_fact) = must_be_fact {
-                for (position, _) in positions.iter().enumerate() {
-                    let position = RunePosition::new(position);
+            if let Some((must_be_fact, must_be_complement)) = must_be_fact {
+                for (complement, _) in complements.iter().enumerate() {
+                    let complement = T::Complement::from_usize(complement);
+                    //Jump over the one that has the MustBe Fact
+                    if complement == must_be_complement {
+                        continue;
+                    }
                     integrations.push(Fact {
                         kind: FactKind::ActivationCannotBeOn,
-                        activation,
-                        position,
-                        reasons: vec![FactReason::Fact(must_be_fact.clone())],
+                        activation: T::choose_activation(view, complement),
+                        position: T::choose_position(view, complement),
+                        reasons: vec![FactReason::Fact(
+                            must_be_fact.clone(),
+                            DebugInfo {
+                                origin: "consolidate_views must_be_fact",
+                            },
+                        )],
                     });
                 }
             } else {
@@ -193,8 +234,8 @@ impl FactDb {
                 let mut possibility = Possibilities::None;
                 let mut reasons = Vec::new();
 
-                for (position, fact) in positions.iter().enumerate() {
-                    let position = RunePosition::new(position);
+                for (complement, fact) in complements.iter().enumerate() {
+                    let complement = T::Complement::from_usize(complement);
                     if let Some(fact) = fact {
                         match self.facts.get(fact.0).unwrap().kind {
                             FactKind::Contradiction => {
@@ -204,19 +245,24 @@ impl FactDb {
                                 panic!("We searched earlier for MustBeOn fields and found none, and now there is one?!");
                             }
                             FactKind::ActivationCannotBeOn => {
-                                reasons.push(FactReason::Fact(fact.clone()));
+                                reasons.push(FactReason::Fact(
+                                    fact.clone(),
+                                    DebugInfo {
+                                        origin: "consolidate_views only_one_place_left",
+                                    },
+                                ));
                             }
                         }
                     } else {
-                        possibility.add(position);
+                        possibility.add(complement);
                     }
                 }
 
                 if let Possibilities::Single(possibility) = possibility {
                     integrations.push(Fact {
                         kind: FactKind::ActivationMustBeOn,
-                        activation,
-                        position: possibility,
+                        activation: T::choose_activation(view, possibility),
+                        position: T::choose_position(view, possibility),
                         reasons,
                     });
                 }
@@ -226,72 +272,45 @@ impl FactDb {
         self.integrate_consolidation(integrations)
     }
 
-    fn consolidate_positions(&mut self) -> Result<ConsolidationResult, FactError> {
-        let mut integrations = Vec::new();
-        for (position, activations) in self.fact_lookup.rows().into_iter().enumerate() {
-            let position = RunePosition::new(position);
-
-            let must_be_fact = activations.iter().find_map(|fact| {
-                if let Some(fact) = fact {
-                    match self.facts.get(fact.0).unwrap().kind {
-                        FactKind::ActivationMustBeOn => Some(fact),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            });
-
-            //If there is a must-be fact, then set all others to can't be with the mustbe as the reason
-            //If there are multiple-must bes the integrate_single_fact takes care of the
-            //contradiction
-            if let Some(must_be_fact) = must_be_fact {
-                for (activation, _) in activations.iter().enumerate() {
-                    let activation = Activation::new(activation as u8).unwrap();
-                    integrations.push(Fact {
-                        kind: FactKind::ActivationCannotBeOn,
-                        activation,
-                        position,
-                        reasons: vec![FactReason::Fact(must_be_fact.clone())],
-                    });
-                }
-            } else {
-                //If there is only one place left -> Introduce a MustBe with all other places as
-                //Reasons
-                let mut possibility = Possibilities::None;
-                let mut reasons = Vec::new();
-
-                for (activation, fact) in activations.iter().enumerate() {
-                    let activation = Activation::new(activation as u8).unwrap();
-                    if let Some(fact) = fact {
-                        match self.facts.get(fact.0).unwrap().kind {
+    fn info_dump(&self) {
+        println!("Current knowledge:= ======= ======");
+        for (i, f) in self.facts.iter().enumerate() {
+            println!("Fact {}, {:?}", i, f);
+        }
+        println!("[..] means Must Be, X..X means Contradiction, others mean CannotBe");
+        print!("    {:3}", "");
+        for i in 0..self.fact_lookup.shape()[1] {
+            print!("| {:^5} ", i);
+        }
+        println!("");
+        for (position, activations) in self
+            .fact_lookup
+            .lanes(Activation::axis())
+            .into_iter()
+            .enumerate()
+        {
+            print!("Pos {:3}", position);
+            for (_, fact) in activations.iter().enumerate() {
+                match fact {
+                    Some(it) => {
+                        let fact = &self.facts[it.0];
+                        match fact.kind {
                             FactKind::Contradiction => {
-                                //TODO WHat ?
-                            }
-                            FactKind::ActivationMustBeOn => {
-                                panic!("We searched earlier for MustBeOn fields and found none, and now there is one?!");
+                                print!("|X{:^5}X", it.0);
                             }
                             FactKind::ActivationCannotBeOn => {
-                                reasons.push(FactReason::Fact(fact.clone()));
+                                print!("| {:^5} ", it.0);
+                            }
+                            FactKind::ActivationMustBeOn => {
+                                print!("|[{:^5}]", it.0);
                             }
                         }
-                    } else {
-                        possibility.add(activation);
                     }
-                }
-
-                if let Possibilities::Single(possibility) = possibility {
-                    integrations.push(Fact {
-                        kind: FactKind::ActivationMustBeOn,
-                        activation: possibility,
-                        position,
-                        reasons,
-                    });
+                    None => print!("| {:^5} ", " "),
                 }
             }
+            println!("");
         }
-
-        self.integrate_consolidation(integrations)
     }
 
     fn consolidate_rules(&mut self, lock: &RuneLock) -> Result<ConsolidationResult, FactError> {
@@ -299,8 +318,11 @@ impl FactDb {
         //Check if the fixed_assignment is valid (We don't need to do that, as internal
         //inconsistencies will com up in the second state anyways.)
 
+        self.info_dump();
+
         //Second check the implications of the current assignment
         for ((position, activation), fact) in self.givens() {
+            println!("Given: {:?} {:?} through {:?}", position, activation, fact);
             //Get all rules which affect this given
             for (rule_index, rule) in lock.rules.iter().enumerate() {
                 match rule {
@@ -313,7 +335,15 @@ impl FactDb {
                     | RuleKind::Max0Conductive { first, second } => {
                         for (this, other) in [(first, second), (second, first)] {
                             if *this == activation {
+                                println!(
+                                    "Consolidating Rule: {:?} in config {:?}-{:?} for {:?}@{:?}",
+                                    rule, this, other, activation, position
+                                );
                                 for possibility in self.possibilities_for(*other) {
+                                    // if possibility == position {
+                                    //     continue; //TODO This should be handled by
+                                    //               //possibilities_for
+                                    // }
                                     match rule.validate_tuple(
                                         lock,
                                         (position, activation),
@@ -321,14 +351,19 @@ impl FactDb {
                                     ) {
                                         Ok(_) => {}
                                         Err(err) => match err {
-                                            crate::rule::RuleError::Violated
-                                            | crate::rule::RuleError::Unfulfillable => integrations
+                                            ValidateTupleError::InvalidAssignment(_)
+                                            | ValidateTupleError::RuleError(_) => integrations
                                                 .push(Fact {
                                                     kind: FactKind::ActivationCannotBeOn,
                                                     activation: *other,
                                                     position: possibility,
                                                     reasons: vec![
-                                                        FactReason::Fact(fact),
+                                                        FactReason::Fact(
+                                                            fact,
+                                                            DebugInfo {
+                                                                origin: "consolidate_rules",
+                                                            },
+                                                        ),
                                                         FactReason::Rule(rule_index),
                                                     ],
                                                 }),
@@ -391,17 +426,22 @@ impl FactDb {
         Assignment::from_tuple_iter(self.givens().map(|it| it.0))
     }
 
-    fn possibilities_for<'a, T: View>(
+    fn possibilities_for<'a, T: View + Debug>(
         &'a self,
-        activation: T,
-    ) -> impl Iterator<Item = T::Complement> + 'a {
+        view: T,
+    ) -> impl Iterator<Item = T::Complement> + 'a
+    where
+        T::Complement: Debug,
+    {
+        println!("possibilities for {:?}", view);
         //TODO Test if that is the correct axis
         self.fact_lookup
-            .index_axis(T::axis(), activation.index())
+            .index_axis(T::axis(), view.index())
             .into_iter()
             .enumerate()
-            .filter_map(|(position, handle)| {
-                let complement = T::Complement::from_usize(position);
+            .filter_map(|(complement, handle)| {
+                let complement = T::Complement::from_usize(complement);
+                println!("@ {:?} {:?}", complement, handle);
                 if let Some(handle) = handle {
                     match self.facts.get(handle.0).unwrap().kind {
                         FactKind::Contradiction => None,
@@ -412,6 +452,10 @@ impl FactDb {
                     Some(complement)
                 }
             })
+            .map(|it| {
+                println!(" => {:?}", it);
+                it
+            })
     }
 
     pub fn explain(&self, fact_handle: FactHandle) {
@@ -421,8 +465,8 @@ impl FactDb {
                     println!("{}: {}", handle, fact);
                     for reason in fact.reasons.iter() {
                         match reason {
-                            FactReason::Fact(fact) => {
-                                print!("{0:1$}  -> ", "", inset);
+                            FactReason::Fact(fact, debug_info) => {
+                                print!("{0:1$}  -> (from {2})", "", inset, debug_info.origin);
                                 explain_fact(db, fact.clone(), inset + 4)
                             }
                             FactReason::Rule(rule) => {
@@ -463,4 +507,67 @@ impl Display for Fact {
         };
         write!(f, "{} {} {}", self.position, verb, self.activation)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use ndarray::Axis;
+
+    use crate::{activation::Activation, fact_solver::view::View, index::RunePosition};
+
+    use super::FactDb;
+
+    #[test]
+    fn test_axis_lanes() {
+        //We have 3 runes and 9 activations.
+        let db = FactDb::new(3, 9);
+
+        dbg!(&db.fact_lookup);
+
+        //Lookup 2nd Rune 7th Activation
+        let rune_2_activation_7 = db.fact_lookup[[2, 7]];
+        dbg!(rune_2_activation_7);
+
+        //Lookup Activations for Rune 1 (Should be 9 long)
+        let activations_for_rune = db.fact_lookup.index_axis(RunePosition::axis(), 1);
+        dbg!(activations_for_rune);
+        assert_eq!(activations_for_rune.len(), 9);
+
+        //Lookup Runes for Activation 1 (Should be 3 long)
+        let runes_for_activation = db.fact_lookup.index_axis(Activation::axis(), 1);
+        dbg!(runes_for_activation);
+        assert_eq!(runes_for_activation.len(), 3);
+
+        //Iterate Runes with their activations
+        //Index is the rune, collection is of activations
+        let activations_for_rune: Vec<_> = db
+            .fact_lookup
+            .lanes(Activation::axis())
+            .into_iter()
+            .enumerate()
+            .collect();
+        assert_eq!(activations_for_rune.len(), 3);
+        assert_eq!(activations_for_rune[0].1.len(), 9);
+
+        //Iterate Activations with their runes
+        //Index is the activation, collection is of runes
+        let runes_for_activation: Vec<_> = db
+            .fact_lookup
+            .lanes(RunePosition::axis())
+            .into_iter()
+            .enumerate()
+            .collect();
+        assert_eq!(runes_for_activation.len(), 9);
+        assert_eq!(runes_for_activation[0].1.len(), 3);
+    }
+
+    #[test]
+    fn test_indexed_iter() {
+        let db = FactDb::new(3, 9);
+
+        for ((a, b), _) in db.fact_lookup.indexed_iter() {
+            dbg!((a, b));
+        }
+    }
+    //We have 3 runes and 9 activations.
 }

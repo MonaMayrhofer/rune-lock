@@ -13,6 +13,11 @@ use self::{
     fact_db::{FactDb, FactHandle},
 };
 
+#[derive(Clone, Copy, Debug)]
+pub struct DebugInfo {
+    pub origin: &'static str,
+}
+
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum FactKind {
     Contradiction,
@@ -20,14 +25,14 @@ pub enum FactKind {
     ActivationMustBeOn,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum FactReason {
-    Fact(FactHandle),
+    Fact(FactHandle, DebugInfo),
     Rule(usize),
     Assumption,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Fact {
     kind: FactKind,
     activation: Activation,

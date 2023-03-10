@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     activation::Activation,
-    assignment::Assignment,
+    assignment::{Assignment, AssignmentError},
     index::{RunePosition, MAX_SANTOR, MIN_SANTOR},
     rune::Rune,
     RuneLock,
@@ -146,6 +146,14 @@ pub enum RuleError {
     Unfulfillable,
 }
 
+#[derive(Debug, Error)]
+pub enum ValidateTupleError {
+    #[error("{0}")]
+    InvalidAssignment(#[from] AssignmentError),
+    #[error("{0}")]
+    RuleError(#[from] RuleError),
+}
+
 impl RuleKind {
     pub fn validate(&self, lock: &RuneLock, assignment: &Assignment) -> Result<(), RuleError> {
         match self {
@@ -246,9 +254,10 @@ impl RuleKind {
         lock: &RuneLock,
         a: (RunePosition, Activation),
         b: (RunePosition, Activation),
-    ) -> Result<(), RuleError> {
+    ) -> Result<(), ValidateTupleError> {
         //TODO Speed this up
-        let fake_assignment = Assignment::from_tuple_iter([a, b].into_iter()).unwrap();
-        self.validate(lock, &fake_assignment)
+        let fake_assignment = Assignment::from_tuple_iter([a, b].into_iter())?;
+        self.validate(lock, &fake_assignment)?;
+        Ok(())
     }
 }
