@@ -1,4 +1,5 @@
 pub mod assumption_tree;
+mod explainer;
 pub mod fact_db;
 pub mod view;
 
@@ -6,7 +7,9 @@ use std::fmt::{Debug, Display, Formatter};
 
 use slotmap::{new_key_type, SlotMap};
 
-use crate::{activation::Activation, index::RunePosition, RuneLock};
+use crate::{
+    activation::Activation, fact_solver::explainer::explain_fact, index::RunePosition, RuneLock,
+};
 
 use self::{
     assumption_tree::{AssumptionTree, AssumptionTreeError, AssumptionTreeNodeHandle},
@@ -14,19 +17,19 @@ use self::{
     view::{ChooseView, View},
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct DebugInfo {
     pub origin: &'static str,
 }
 
-#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub enum FactKind {
     Contradiction,
     ActivationCannotBeOn,
     ActivationMustBeOn,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum FactReason {
     Fact(FactHandle, DebugInfo),
     Rule(usize),
@@ -190,6 +193,8 @@ impl<'a> FactualSolver<'a> {
         println!("Explaining Fact: {} in state {}", fact_handle, self.current);
         let db = &self.states[self.current].facts;
         db.explain(fact_handle, self.lock, max_depth);
+        println!("============");
+        explain_fact(fact_handle, &db, &self.lock);
     }
 
     pub fn dump_knowledge(&self) {

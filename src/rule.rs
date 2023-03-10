@@ -10,7 +10,7 @@ use crate::{
     RuneLock,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum RuleKind {
     Alwanese {
         first: Activation,

@@ -113,11 +113,8 @@ fn main() {
                     SolverCommand::TryActivation { activation } => {
                         solver.try_possibilities(activation);
                     }
-                    SolverCommand::Explain {
-                        fact_handle,
-                        max_depth,
-                    } => {
-                        solver.explain(fact_handle, max_depth);
+                    SolverCommand::Explain { fact_handle } => {
+                        solver.explain(fact_handle, 10);
                     }
                     SolverCommand::Dump => solver.dump_knowledge(),
                 },

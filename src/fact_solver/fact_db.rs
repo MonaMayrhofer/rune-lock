@@ -15,7 +15,7 @@ use super::{
     DebugInfo, Fact, FactKind, FactReason,
 };
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, Hash, PartialEq, Eq)]
 pub struct FactHandle(usize);
 impl FactHandle {
     pub fn from_raw(node: usize) -> FactHandle {
@@ -422,11 +422,11 @@ impl FactDb {
                             //on the second.
                         }
                     }
-                    RuleKind::RuneFollowsImmediately { first, second } => {
+                    RuleKind::RuneFollowsImmediately { first, .. } => {
                         let given_rune = lock.runes[given_position];
                         for (rune, affected_activation) in [
                             (first, given_activation.next()),
-                            (second, given_activation.prev()),
+                            // (second, given_activation.prev()),
                         ] {
                             if given_rune == *rune {
                                 match affected_activation {
@@ -610,6 +610,10 @@ impl FactDb {
         }
 
         explain_fact(self, lock, fact_handle, 0, max_depth);
+    }
+
+    pub fn get(&self, fact: FactHandle) -> Option<&Fact> {
+        self.facts.get(fact.0)
     }
 }
 
