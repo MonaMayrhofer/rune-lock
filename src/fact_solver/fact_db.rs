@@ -640,7 +640,11 @@ impl Display for Fact {
                     self.activation, self.position
                 ),
                 ContradictionKind::NoOptionsLeft => {
-                    write!(f, "{} has no options left to go", self.activation)
+                    write!(
+                        f,
+                        "{} or {} has no options left to go",
+                        self.activation, self.position
+                    )
                 }
             },
             FactKind::ActivationCannotBeOn => {
