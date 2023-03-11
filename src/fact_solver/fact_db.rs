@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use log::{debug, log_enabled};
 use ndarray::{Array2, Axis};
 
 use crate::{
@@ -96,27 +97,33 @@ impl FactDb {
             SingleFactIntegrationResult::Integrated(_) => {
                 loop {
                     let mut changed = false;
-                    println!("==\n==\n== Unique per RunePosition");
+                    debug!("==\n==\n== Unique per RunePosition");
                     if let ConsolidationResult::Changes =
                         self.consolidate_unique_per_view::<RunePosition>()?
                     {
                         changed = true
                     }
-                    self.info_dump();
-                    println!("==\n==\n== Unique per Activation");
+                    if log_enabled!(log::Level::Debug) {
+                        self.info_dump();
+                    }
+                    debug!("==\n==\n== Unique per Activation");
                     if let ConsolidationResult::Changes =
                         self.consolidate_unique_per_view::<Activation>()?
                     {
                         changed = true
                     }
-                    self.info_dump();
-                    println!("==\n==\n== Rules");
+                    if log_enabled!(log::Level::Debug) {
+                        self.info_dump();
+                    }
+                    debug!("==\n==\n== Rules");
                     if let ConsolidationResult::Changes = self.consolidate_rules(lock)? {
                         changed = true
                     }
-                    self.info_dump();
+                    if log_enabled!(log::Level::Debug) {
+                        self.info_dump();
+                    }
 
-                    println!("Changes? {:?}", changed);
+                    debug!("Changes? {:?}", changed);
                     if !changed {
                         break;
                     }
@@ -152,7 +159,7 @@ impl FactDb {
                 //A newcoming Contradictin overwrites All
                 (_, FactKind::Contradiction(_)) => {
                     let handle = FactHandle(self.facts.len());
-                    println!("Created Contradiction {:?}: {:?}", handle, fact);
+                    debug!("Created Contradiction {:?}: {:?}", handle, fact);
                     self.facts.push(fact);
                     *existing_fact = Some(handle);
 
@@ -187,7 +194,7 @@ impl FactDb {
                         ..fact
                     };
                     let contradicting_handle = FactHandle(self.facts.len());
-                    println!(
+                    debug!(
                         "Created Contradiction {:?}: {}",
                         contradicting_handle, contradiction
                     );
@@ -198,7 +205,7 @@ impl FactDb {
             }
         } else {
             let handle = FactHandle(self.facts.len());
-            println!("Created Fact {:?}: {:?}", handle, fact);
+            debug!("Created Fact {:?}: {:?}", handle, fact);
             self.facts.push(fact);
             *existing_fact = Some(handle);
 
@@ -221,7 +228,7 @@ impl FactDb {
             .enumerate()
         {
             let view = T::from_usize(view);
-            println!("Consolidating View {:?}", view);
+            debug!("Consolidating View {:?}", view);
 
             let must_be_fact = complements
                 .iter()
@@ -290,7 +297,7 @@ impl FactDb {
                     }
                 }
 
-                println!("Found Possibilities: {:?}", possibility);
+                debug!("Found Possibilities: {:?}", possibility);
 
                 match possibility {
                     Possibilities::Single(possibility) => {
@@ -366,11 +373,13 @@ impl FactDb {
         //Check if the fixed_assignment is valid (We don't need to do that, as internal
         //inconsistencies will com up in the second state anyways.)
 
-        self.info_dump();
+        if log_enabled!(log::Level::Debug) {
+            self.info_dump();
+        }
 
         //Second check the implications of the current assignment
         for ((given_position, given_activation), fact) in self.givens() {
-            println!(
+            debug!(
                 "Given: {:?} {:?} through {:?}",
                 given_position, given_activation, fact
             );
@@ -386,7 +395,7 @@ impl FactDb {
                     | RuleKind::Max0Conductive { first, second } => {
                         for (this, other) in [(first, second), (second, first)] {
                             if *this == given_activation {
-                                println!(
+                                debug!(
                                     "Consolidating Rule: {:?} in config {:?}-{:?} for {:?}@{:?}",
                                     rule, this, other, given_activation, given_position
                                 );
@@ -531,7 +540,7 @@ impl FactDb {
     where
         T::Complement: Debug,
     {
-        println!("possibilities for {:?}", view);
+        debug!("possibilities for {:?}", view);
         //TODO Test if that is the correct axis
         self.fact_lookup
             .index_axis(T::axis(), view.index())
@@ -539,7 +548,7 @@ impl FactDb {
             .enumerate()
             .filter_map(|(complement, handle)| {
                 let complement = T::Complement::from_usize(complement);
-                println!("@ {:?} {:?}", complement, handle);
+                debug!("@ {:?} {:?}", complement, handle);
                 if let Some(handle) = handle {
                     match self.facts.get(handle.0).unwrap().kind {
                         FactKind::Contradiction(_) => None,
@@ -551,7 +560,7 @@ impl FactDb {
                 }
             })
             .map(|it| {
-                println!(" => {:?}", it);
+                debug!(" => {:?}", it);
                 it
             })
     }
@@ -615,12 +624,6 @@ impl FactDb {
 
     pub fn get(&self, fact: FactHandle) -> Option<&Fact> {
         self.facts.get(fact.0)
-    }
-}
-
-impl Display for FactDb {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TODO")
     }
 }
 

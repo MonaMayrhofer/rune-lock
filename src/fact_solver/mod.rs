@@ -8,6 +8,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
 };
 
+use log::debug;
 use slotmap::{new_key_type, SlotMap};
 
 use crate::{
@@ -142,7 +143,11 @@ impl<'a> FactualSolver<'a> {
         }
     }
 
-    pub fn assume(&mut self, activation: Activation, position: RunePosition) {
+    pub fn assume(
+        &mut self,
+        activation: Activation,
+        position: RunePosition,
+    ) -> AssumptionTreeNodeHandle {
         let mut derived_facts = self.states[self.current].facts.clone();
         let state = match derived_facts.integrate_and_consolidate(
             Fact {
@@ -158,7 +163,7 @@ impl<'a> FactualSolver<'a> {
                 Contradiction(reason) => SolverStateState::Contradicts(reason),
             },
         };
-        println!(
+        debug!(
             "================================================================ {:?}!",
             state
         );
@@ -174,6 +179,7 @@ impl<'a> FactualSolver<'a> {
                 state,
             },
         );
+        self.current
     }
 
     pub fn try_possibilities<T: View + Debug + ChooseView + Clone>(&mut self, it: T)
@@ -213,7 +219,6 @@ impl<'a> FactualSolver<'a> {
             Err(err) => println!("Invalid Assignment: {}", err),
             Ok(_) => println!("Valid State."),
         }
-        println!("{}", self.states[self.current].facts);
     }
 
     pub fn explain(&self, fact_handle: FactHandle, max_depth: usize) {

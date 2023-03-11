@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.26.1"
+env_logger = "0.10.0"
 itertools = "0.10.5"
+log = "0.4.17"
 ndarray = "0.15.6"
 slotmap = "1.0.6"
 thiserror = "1.0.38"

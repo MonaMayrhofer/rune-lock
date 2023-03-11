@@ -125,7 +125,13 @@ pub fn explain_fact(fact_handle: FactHandle, facts: &FactDb, lock: &RuneLock) {
 }
 
 pub fn explain_fact_d(fact_handle: FactHandle, facts: &FactDb, lock: &RuneLock, depth: usize) {
-    let fact = facts.get(fact_handle).unwrap();
+    let fact = match facts.get(fact_handle) {
+        Some(i) => i,
+        None => {
+            println!("Unknown Fact: {}", fact_handle);
+            return;
+        }
+    };
 
     let mut similar_but_position: HashMap<FactExceptPosition, Vec<(FactHandle, RunePosition)>> =
         HashMap::new();

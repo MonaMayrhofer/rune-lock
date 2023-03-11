@@ -50,6 +50,7 @@ impl RuneLock {
 }
 
 fn main() {
+    env_logger::init();
     //Z = 0
     //V = 1
     //S = 2
@@ -75,6 +76,7 @@ fn main() {
             (11, 12).increase_santor(),
             (8, 10).antakian_twins(),
             (1, 12).alwanese(),
+            (1, 12).max_0_conductive(),
             RuleKind::RuneFollowsImmediately {
                 first: Rune::new(0),
                 second: Rune::new(1),

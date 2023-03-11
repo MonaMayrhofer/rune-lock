@@ -254,5 +254,10 @@ mod tests {
             ),
             |a, b| a.max_0_conductive(b),
         );
+
+        assert_eq!(
+            RunePosition::new(9).max_0_conductive(RunePosition::new(5)),
+            false
+        )
     }
 }
